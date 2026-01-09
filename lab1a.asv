@@ -1,0 +1,181 @@
+clear; clc; close all;
+
+n_values = 100:100:1000;
+num_steps = length(n_values);
+
+% 初始化时间记录数组
+time_inverse = zeros(1, num_steps);
+time_lu      = zeros(1, num_steps);
+time_chol    = zeros(1, num_steps);
+
+
+for k = 1:num_steps
+    n = n_values(k);
+    fprintf('Running for n = %d...\n', n);
+    
+
+    % 1. Use randn function to generate alpha and b
+    alpha_vec = randn(n, 1);
+    b = randn(n, 1);
+    
+    % A = I + alpha * alpha^T
+    A = eye(n) + alpha_vec * alpha_vec';
+    
+    % --- Method 1: Inverse Method ---
+    tic;
+    x_inv = solve_by_inverse(A, b);
+    time_inverse(k) = toc;
+    
+    % --- Method 2: LU Decomposition ---
+    tic;
+    x_lu = solve_by_lu(A, b);
+    time_lu(k) = toc;
+    
+    % --- Method 3: Cholesky Decomposition ---
+    tic;
+    x_chol = solve_by_cholesky(A, b);
+    time_chol(k) = toc;
+    
+
+    err = norm(A*x_chol - b);
+    if err > 1e-5, warning('Wrong!'); 
+    end
+end
+
+fprintf('Simulation finished.\n');
+
+figure('Color', 'w');
+plot(n_values, time_inverse, '-o', 'LineWidth', 2, 'DisplayName', 'Inverse Method');
+hold on;
+plot(n_values, time_lu,      '-s', 'LineWidth', 2, 'DisplayName', 'LU Decomposition');
+plot(n_values, time_chol,    '-^', 'LineWidth', 2, 'DisplayName', 'Cholesky Decomposition');
+hold off;
+
+grid on;
+xlabel('Matrix Size (n)', 'FontSize', 12);
+ylabel('Execution Time (seconds)', 'FontSize', 12);
+title('Comparison of Linear Solvers', 'FontSize', 14);
+legend('Location', 'northwest', 'FontSize', 10);
+
+%% functions
+function x = solve_by_inverse(A, b)
+
+    n = size(A, 1);
+    
+    % Augment [A | I]
+    aug = [A, eye(n)];
+    
+    % Gauss-Jordan Elimination
+    for i = 1:n
+        pivot = aug(i, i);
+        aug(i, :) = aug(i, :) / pivot;
+
+        for k = 1:n
+            if k ~= i
+                factor = aug(k, i);
+                aug(k, :) = aug(k, :) - factor * aug(i, :);
+            end
+        end
+    end
+    A_inv = aug(:, n+1:end);
+    
+    % x = A^{-1} * b
+    x = zeros(n, 1);
+    for i = 1:n
+        sum_val = 0;
+        for j = 1:n
+            sum_val = sum_val + A_inv(i, j) * b(j);
+        end
+        x(i) = sum_val;
+    end
+end
+
+function x = solve_by_lu(A, b)
+
+    n = size(A, 1);
+    L = eye(n);
+    U = zeros(n);
+    
+    for k = 1:n
+        for j = k:n
+            sum_val = 0;
+            for p = 1:k-1
+                sum_val = sum_val + L(k, p) * U(p, j);
+            end
+            U(k, j) = A(k, j) - sum_val;
+        end
+        
+        for i = k+1:n
+            sum_val = 0;
+            for p = 1:k-1
+                sum_val = sum_val + L(i, p) * U(p, k);
+            end
+            L(i, k) = (A(i, k) - sum_val) / U(k, k);
+        end
+    end
+    
+    % --- solve Ly = b ---
+    y = zeros(n, 1);
+    for i = 1:n
+        sum_val = 0;
+        for j = 1:i-1
+            sum_val = sum_val + L(i, j) * y(j);
+        end
+        y(i) = b(i) - sum_val; % 因为L(i,i)是1
+    end
+    
+    % --- solve Ux = y ---
+    x = zeros(n, 1);
+    for i = n:-1:1
+        sum_val = 0;
+        for j = i+1:n
+            sum_val = sum_val + U(i, j) * x(j);
+        end
+        x(i) = (y(i) - sum_val) / U(i, i);
+    end
+end
+
+function x = solve_by_cholesky(A, b)
+    %  A=GG^T, Gy=b, G^T x = y
+    n = size(A, 1);
+    G = zeros(n);
+
+    for j = 1:n
+        sum_diag = 0;
+        for k = 1:j-1
+            sum_diag = sum_diag + G(j, k)^2;
+        end
+        G(j, j) = sqrt(A(j, j) - sum_diag);
+        
+        for i = j+1:n
+            sum_off = 0;
+            for k = 1:j-1
+                sum_off = sum_off + G(i, k) * G(j, k);
+            end
+            G(i, j) = (A(i, j) - sum_off) / G(j, j);
+        end
+    end
+    
+    
+    % Gy = b
+    y = zeros(n, 1);
+    for i = 1:n
+        sum_val = 0;
+        for k = 1:i-1
+            sum_val = sum_val + G(i, k) * y(k);
+        end
+        y(i) = (b(i) - sum_val) / G(i, i);
+    end
+    
+    % --- 后向代入解 G^T x = y
+    % G_T 是上三角矩阵
+    G_T = G'; 
+    x = zeros(n, 1);
+    for i = n:-1:1
+        sum_val = 0;
+        for k = i+1:n
+            sum_val = sum_val + G_T(i, k) * x(k);
+        end
+        x(i) = (y(i) - sum_val) / G_T(i, i);
+    end
+end
